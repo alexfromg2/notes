@@ -1,16 +1,131 @@
 ﻿#include "interruptible_thread.h"
+#include <cstdint>
 #include <list>
 #include "lock_list.h"
+
+
+//TODO: use this types
+typedef uint8_t UInt8;
+typedef uint16_t UInt16;
+typedef uint32_t UInt32;
+
+typedef float Float32;
+
+struct WaveFormatHeader
+{
+	char format[4];//like WAVE OR AVI
+				   //TODO support this
+				   //http://audiocoding.ru/article/2008/05/22/wav-file-structure.html
+	unsigned short audioTag;//2 bytes
+	unsigned short channels;//2 bytes
+	unsigned int samplesPerSec;//4 bytes
+	unsigned int avgBytesPerSec;//4 bytes
+	unsigned short blockAlign;//2 bytes
+	unsigned short bitsPerSample;//2 bytes
+};
 
 
 class AudioBuffer
 {
 public:
+	/// Constructor.
+	AudioBuffer() :
+		m_maxFrames(0),
+		m_data(nullptr),
+		m_actualFrames(0)
+	{
+	}
+
+	~AudioBuffer()
+	{
+		clearData();
+	}
+
+	void clearData()
+	{
+		if (m_data)
+		{
+			delete[] m_data;
+			m_data = nullptr;
+		}
+	}
+
+	inline bool initialize(unsigned int max_frames, const WaveFormatHeader& bufferFormat)
+	{
+		//TODO: check buffer format;
+		if (max_frames == 0)
+			return false;
+
+		clearData();
+
+		m_maxFrames = max_frames;
+		m_bufferFormat = bufferFormat;
+
+		m_data = new float[m_maxFrames*m_bufferFormat.channels];
+		if (m_data)
+			return true;
+
+		return false;
+	}
+
+	inline bool HasData()
+	{
+		return (nullptr != m_data);
+	}
+
+	float* getData()
+	{
+		return m_data;
+	}
+
 	bool mixData(AudioBuffer* otherBuffer)
 	{
+		//TODO: support conversion between different buffer formats
+		if (!(HasData() && otherBuffer && otherBuffer->HasData()))
+			return false;
+
+		if (m_maxFrames < otherBuffer->getActualFrames())
+			return false;
+
+		unsigned int mixPart = (otherBuffer->getActualFrames() < m_actualFrames) ? otherBuffer->getActualFrames() : m_actualFrames;
+		unsigned int i = 0;
+
+		float* otherData = otherBuffer->getData();
+		for (i = 0; i < mixPart; i++)
+		{
+			m_data[i] += otherData[i];
+		}
+
+		if (mixPart < otherBuffer->getActualFrames())
+		{
+			for (i = mixPart; i < otherBuffer->getActualFrames(); i++)
+			{
+				m_data[i] = otherData[i];
+			}
+			m_actualFrames = otherBuffer->getActualFrames();
+		}
 		return true;
 	}
+
+	inline unsigned int getMaxFrames() { return m_maxFrames; }
+	inline unsigned int getActualFrames() { return m_actualFrames; }
+	inline void setActualFrames(unsigned int actualFrames) { m_actualFrames = actualFrames; }
+
+protected:
+
+	float*          m_data;
+
+	WaveFormatHeader m_bufferFormat;
+
+	unsigned int        m_maxFrames;
+	unsigned int        m_actualFrames;
 };
+
+/*class AudioSourceSettings	
+{
+public:
+
+};*/
 
 class IAudioSource
 {
