@@ -153,6 +153,63 @@ public:
 	virtual AudioBuffer* getResult() = 0;
 };
 
+class SoundSource : public IAudioSource
+{
+public:
+	bool play()
+	{
+		if (m_isFinished)
+			return false;
+
+		if (m_isPlaying)
+			return false;
+
+		m_isPlaying = true;
+	}
+
+	void pause()
+	{
+		m_isPlaying = false;
+	}
+
+	void stop()
+	{
+		m_isPlaying = false;
+		//m_block->reset();
+	}
+
+	void stopLoop()
+	{
+		//m_block->stopLoop();
+	}
+
+	void update()
+	{
+		if (!m_isPlaying)
+			return;
+		
+		//m_block->update();
+		//m_isFinished = m_block->isFinished();
+		if (m_isFinished)
+			m_isPlaying = false;
+	}
+
+	bool isFinished()const
+	{
+		return m_isFinished;
+	}
+
+	AudioBuffer* getResult()
+	{
+		return nullptr;//m_block->getResult()
+	}
+
+private:
+	bool m_isPlaying;
+	bool m_isFinished;
+	//std::shared_ptr<AudioBlock> m_block;
+};
+
 class IAudioObject
 {
 public:
@@ -288,3 +345,77 @@ void main()
 	manager.finalize();
 	printf("Program end!\n");
 }
+
+/*
+class SimpleSinAct :public MultiLinkedObject
+{
+public:
+SimpleSinAct();
+
+~SimpleSinAct();
+
+bool setInput(unsigned int inputID, FloatParameter* val);
+
+void Process()override;
+
+protected:
+float* resultBuffer;
+double phase;
+float defaultGain;
+float defaultFreq;
+//Global for now
+unsigned long sampleRate;
+unsigned long resultBufferSize;
+
+void increasePhase(double twoPIovrSampleRate, ParameterBufferSize i);
+};
+
+SimpleSinAct::~SimpleSinAct()
+{
+}
+
+bool SimpleSinAct::setInput(unsigned int inputID, FloatParameter* val)
+{
+if (inputs.size() <= inputID || val == nullptr)
+return false;
+
+if (inputID == 0 && (val == nullptr || val->getBufferSize() != 1 || val->getValue(0) < 1))
+return false;
+
+bool result = inputs[inputID].setValue(val->getBuffer(), val->getBufferSize());
+if (inputID == 0 && result)
+{
+resultBufferSize = static_cast<unsigned long>(val->getValue(0));
+if (outputs[0].getBufferSize() != resultBufferSize)
+{
+if (resultBuffer)
+delete[] resultBuffer;
+
+resultBuffer = new float[resultBufferSize];
+outputs[0].setValue(resultBuffer, resultBufferSize);
+}
+}
+return result;
+}
+
+void SimpleSinAct::Process()
+{
+if (resultBufferSize == 0 || inputs[1].getBuffer() == nullptr || inputs[2].getBuffer() == nullptr)
+return;
+double twoPIovrSampleRate = TWO_PI / (double)sampleRate;
+for (ParameterBufferSize i = 0; i < resultBufferSize; ++i)
+{
+resultBuffer[i] = inputs[2].getValue(i) * static_cast<float>(sin(phase));
+increasePhase(twoPIovrSampleRate, i);
+}
+}
+
+void SimpleSinAct::increasePhase(double twoPIovrSampleRate, ParameterBufferSize i)
+{
+phase += twoPIovrSampleRate * inputs[1].getValue(i);
+if (phase >= TWO_PI)
+phase -= TWO_PI;
+if (phase < 0.0)
+phase += TWO_PI;
+}
+*/
