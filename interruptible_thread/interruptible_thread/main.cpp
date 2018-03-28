@@ -4,7 +4,6 @@
 #include "lock_list.h"
 
 
-//TODO: use this types
 typedef uint8_t UInt8;
 typedef uint16_t UInt16;
 typedef uint32_t UInt32;
@@ -13,15 +12,15 @@ typedef float Float32;
 
 struct WaveFormatHeader
 {
-	char format[4];//like WAVE OR AVI
-				   //TODO support this
-				   //http://audiocoding.ru/article/2008/05/22/wav-file-structure.html
-	unsigned short audioTag;//2 bytes
-	unsigned short channels;//2 bytes
-	unsigned int samplesPerSec;//4 bytes
-	unsigned int avgBytesPerSec;//4 bytes
-	unsigned short blockAlign;//2 bytes
-	unsigned short bitsPerSample;//2 bytes
+	UInt8 format[4];//like WAVE OR AVI
+	//TODO support this
+	//http://audiocoding.ru/article/2008/05/22/wav-file-structure.html
+	UInt16 audioTag;//2 bytes
+	UInt16 channels;//2 bytes
+	UInt32 samplesPerSec;//4 bytes
+	UInt32 avgBytesPerSec;//4 bytes
+	UInt16 blockAlign;//2 bytes
+	UInt16 bitsPerSample;//2 bytes
 };
 
 
@@ -50,27 +49,40 @@ public:
 		}
 	}
 
-	inline bool initialize(unsigned int max_frames, const WaveFormatHeader& bufferFormat)
+	inline bool initialize(const UInt32 max_frames, const WaveFormatHeader& bufferFormat)
 	{
-		//TODO: check buffer format;
 		if (max_frames == 0)
+		{
 			return false;
+		}
+
+		if(bufferFormat.channels < 1)
+		{
+			return false;
+		}
+
+		if(bufferFormat.samplesPerSec == 0)
+		{
+			return false;
+		}
 
 		clearData();
 
 		m_maxFrames = max_frames;
 		m_bufferFormat = bufferFormat;
 
-		m_data = new float[m_maxFrames*m_bufferFormat.channels];
+		m_data = new float[m_maxFrames * m_bufferFormat.channels];
 		if (m_data)
+		{
 			return true;
+		}
 
 		return false;
 	}
 
-	inline bool HasData()
+	inline bool HasData()const
 	{
-		return (nullptr != m_data);
+		return nullptr != m_data;
 	}
 
 	float* getData()
@@ -82,13 +94,17 @@ public:
 	{
 		//TODO: support conversion between different buffer formats
 		if (!(HasData() && otherBuffer && otherBuffer->HasData()))
+		{
 			return false;
+		}
 
 		if (m_maxFrames < otherBuffer->getActualFrames())
+		{
 			return false;
+		}
 
-		unsigned int mixPart = (otherBuffer->getActualFrames() < m_actualFrames) ? otherBuffer->getActualFrames() : m_actualFrames;
-		unsigned int i = 0;
+		UInt32 mixPart = (otherBuffer->getActualFrames() < m_actualFrames) ? otherBuffer->getActualFrames() : m_actualFrames;
+		UInt32 i = 0;
 
 		float* otherData = otherBuffer->getData();
 		for (i = 0; i < mixPart; i++)
@@ -107,9 +123,9 @@ public:
 		return true;
 	}
 
-	inline unsigned int getMaxFrames() { return m_maxFrames; }
-	inline unsigned int getActualFrames() { return m_actualFrames; }
-	inline void setActualFrames(unsigned int actualFrames) { m_actualFrames = actualFrames; }
+	inline UInt32 getMaxFrames() const { return m_maxFrames; }
+	inline UInt32 getActualFrames() const { return m_actualFrames; }
+	inline void setActualFrames(const UInt32 actualFrames) { m_actualFrames = actualFrames; }
 
 protected:
 
@@ -117,11 +133,11 @@ protected:
 
 	WaveFormatHeader m_bufferFormat;
 
-	unsigned int        m_maxFrames;
-	unsigned int        m_actualFrames;
+	UInt32 m_maxFrames;
+	UInt32 m_actualFrames;
 };
 
-/*class AudioSourceSettings	
+/*class AudioSourceSettings
 {
 public:
 
@@ -142,10 +158,26 @@ class IAudioObject
 public:
 	virtual ~IAudioObject() {}
 	virtual void update() = 0;
-	virtual void removeFinished() = 0;
 	// virtual AudioBuffer* getResult() = 0;
 };
 
+class AudioBus : public IAudioObject
+{
+public:
+	void update() override
+	{
+		//if it will has children
+		//mix all
+	}
+};
+
+class AudioOutput : public IAudioObject
+{
+	void update() override
+	{
+		//mix all buffers and push it in the queue
+	}
+};
 
 class AudioSourceTemplate : public IAudioObject
 {
@@ -154,14 +186,16 @@ public:
 
 	bool createSound()
 	{
-		std::shared_ptr<IAudioSource> newSound = std::make_shared<IAudioSource>();
+		//std::shared_ptr<IAudioSource> newSound = std::make_shared<IAudioSource>();
 		//creation code here
-		m_sources.pushFront(newSound);
+		//m_sources.pushFront(newSound);
 		return true;
 	}
 
 	void update()override
 	{
+		removeFinished();
+
 		m_sources.forEach([](IAudioSource & sound) { sound.update(); });
 
 		//All buffers has equal sizes
@@ -171,7 +205,8 @@ public:
 			m_result->mixData(sound.getResult());
 		});
 	}
-	void removeFinished()override
+
+	void removeFinished()
 	{
 		m_sources.removeIf([](IAudioSource const & sound) {return sound.isFinished(); });
 	}
@@ -182,6 +217,7 @@ private:
 };
 
 
+//TODO: it should be singleton
 class AudioManager
 {
 public:
@@ -192,8 +228,10 @@ public:
 
 	}
 
+	//TODO: pass AudioManagerSettings
 	bool initialize()
 	{
+		//TODO: setup m_updateTimeMs here
 		return false;
 	}
 
@@ -204,13 +242,14 @@ public:
 		m_audioObjects.clear();
 	}
 
+	//TODO: add tree and methods for managing it
+
 	void update()
 	{
 		while (true)
 		{
 			const auto startUpdate = std::chrono::high_resolution_clock::now();
-			removeFinished();
-			interruptionPoint();
+
 			for (auto it : m_audioObjects)
 			{
 				it->update();
@@ -224,32 +263,18 @@ public:
 		}
 	}
 
-	bool createSourceInstance(unsigned int templateId)
+	bool createSourceInstance(const UInt32 templateId)
 	{
 		//TODO: checks
 		AudioSourceTemplate* sourceTemplate = m_sourceTemplate[templateId];
 		return sourceTemplate->createSound();
 	}
-
-	bool setBufferSize(unsigned int bufferTimeSize)
-	{
-		m_updateTimeMs = bufferTimeSize;
-	}
 private:
-	void removeFinished()
-	{
-		for (auto it : m_audioObjects)
-		{
-			it->removeFinished();
-		}
-	}
-private:
-	unsigned int m_updateTimeMs;
+	UInt32 m_updateTimeMs;
 	//It can be not threadsafe list
 	//If we change position in list we can use mutex. else we can use atomic ptr
 	std::list<std::shared_ptr<IAudioObject>> m_audioObjects;
 	//TODO: use hash table
-	//TODO: store sound template class
 	std::vector<AudioSourceTemplate*> m_sourceTemplate; //just pointers to objects stored in m_audioObjects
 	InterruptibleThread m_thread;
 };
