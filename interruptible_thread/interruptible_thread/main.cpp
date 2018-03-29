@@ -3,6 +3,10 @@
 #include <list>
 #include "lock_list.h"
 
+#define _USE_MATH_DEFINES
+
+#include <math.h>
+
 
 typedef uint8_t UInt8;
 typedef uint16_t UInt16;
@@ -142,21 +146,126 @@ protected:
 	UInt32 m_actualFrames;
 };
 
-/*class AudioSourceSettings
+class AudioBlockSettings
 {
 public:
-
-};*/
+	virtual ~AudioBlockSettings() {};
+	UInt32 bufferSize;
+};
 
 class IAudioBlock
 {
 public:
 	virtual ~IAudioBlock() {}
+
+	virtual bool initialize(const std::shared_ptr<AudioBlockSettings>& settings) = 0;
+	virtual void finalize() = 0;
 	virtual void stopLoop() = 0;
 	virtual void reset() = 0;
 	virtual bool isFinished() = 0;
 	virtual AudioBuffer* getResult() = 0;
 	virtual void update() = 0;
+};
+
+class SimpleSinBlockSettings: public AudioBlockSettings
+{
+public:
+	double startPhase;
+	double defaultGain;
+	double defaultFreq;
+	double time;
+	UInt32 sampleRate;
+};
+
+
+class SimpleSinBlock : public IAudioBlock
+{
+public:
+	bool initialize(const std::shared_ptr<AudioBlockSettings>& settings)
+	{
+		//TODO: checks here
+		m_settings = std::dynamic_pointer_cast<SimpleSinBlockSettings>(settings);
+		if (!m_settings)
+			return false;
+		
+		WaveFormatHeader format;
+		format.channels = 1;
+		format.samplesPerSec = m_settings->sampleRate;
+		format.bitsPerSample = 32;
+		format.audioTag = 3;
+		format.avgBytesPerSec = format.channels * format.samplesPerSec * (format.bitsPerSample/8);
+		//format.blockAlign;
+		//format.format;
+		bool result = m_result.initialize(m_settings->bufferSize, format);
+		reset();
+
+		return result;
+	}
+	
+	void finalize()
+	{
+		m_result.clearData();
+	}
+
+	void stopLoop()
+	{
+		//TODO: propagate to children
+	}
+
+	void reset()
+	{
+		m_phase = m_settings->startPhase;
+		m_elapsedTime = 0;
+		m_gain = m_settings->defaultGain;
+		m_freq = m_settings->defaultFreq;
+		//TODO: propagate to children
+	}
+
+	bool isFinished()
+	{
+		if (m_settings->time < 0)
+			return false;
+
+		return m_settings->time <= m_elapsedTime;
+	}
+
+	AudioBuffer* getResult()
+	{
+		return &m_result;
+	}
+
+	void update() override
+	{
+		const double twoPIovrSampleRate = 2 * M_PI / static_cast<double>(m_result.getFormat().samplesPerSec);
+		float* resultData = m_result.getData();
+		//TODO: use m_elapsedTime
+		UInt32 framesToGenerate = m_result.getMaxFrames();
+		for (UInt32 i = 0; i < framesToGenerate; ++i)
+		{
+			resultData[i] = static_cast<float>(m_gain * sin(m_phase));
+			increasePhase(twoPIovrSampleRate);
+		}
+		m_result.setActualFrames(framesToGenerate);
+	}
+private:
+	void increasePhase(const double twoPIovrSampleRate)
+	{
+		m_phase += twoPIovrSampleRate * m_freq;
+		if (m_phase >= 2 * M_PI)
+		{
+			m_phase -= 2 * M_PI;
+		}
+		if (m_phase < 0.0)
+		{
+			m_phase += 2 * M_PI;
+		}
+	}
+	double m_elapsedTime;
+	double m_phase;
+	double m_gain;
+	double m_freq;
+	AudioBuffer m_result;
+	std::shared_ptr<SimpleSinBlockSettings> m_settings;
 };
 
 class IAudioSource
@@ -195,12 +304,12 @@ public:
 	void stop()
 	{
 		m_isPlaying = false;
-		//m_block->reset();
+		m_block->reset();
 	}
 
 	void stopLoop()
 	{
-		//m_block->stopLoop();
+		m_block->stopLoop();
 	}
 
 	void update()
@@ -210,8 +319,9 @@ public:
 			return;
 		}
 
-		//m_block->update();
-		//m_isFinished = m_block->isFinished();
+		m_block->update();
+		
+		m_isFinished = m_block->isFinished();
 		if (m_isFinished)
 		{
 			m_isPlaying = false;
@@ -225,13 +335,13 @@ public:
 
 	AudioBuffer* getResult()
 	{
-		return nullptr;//m_block->getResult()
+		return m_block->getResult();
 	}
 
 private:
 	bool m_isPlaying;
 	bool m_isFinished;
-	//std::shared_ptr<IAudioBlock> m_block;
+	std::shared_ptr<IAudioBlock> m_block;
 };
 
 class IAudioObject
@@ -370,57 +480,7 @@ void main()
 	printf("Program end!\n");
 }
 
-class SimpleSinBlockSettings
-{
-public:
-	double startPhase;
-	float defaultGain;
-	float defaultFreq;
-	float time;
-	UInt32 sampleRate;
-};
 
-#define _USE_MATH_DEFINES
-
-#include <math.h>
-class SimpleSinBlock: public IAudioBlock
-{
-public:
-	void update() override
-	{
-		AudioBuffer* parameter1;
-		AudioBuffer* parameter2;
-		auto parameter1data = parameter1->getData();
-		auto parameter2data = parameter2->getData();
-		/*if (resultBufferSize == 0 || inputs[1].getBuffer() == nullptr || inputs[2].getBuffer() == nullptr)
-		{
-			return;
-		}*/
-
-		const double twoPIovrSampleRate = 2 * M_PI / static_cast<double>(m_result.getFormat().samplesPerSec);
-		auto resultData = m_result.getData();
-		for (UInt32 i = 0; i < m_result.getMaxFrames(); ++i)// TODO: get from result buffer
-		{
-			resultData[i] = parameter2data[i] * static_cast<float>(sin(m_phase));
-			increasePhase(twoPIovrSampleRate, i, parameter2data);
-		}
-	}
-private:
-	void increasePhase(const double twoPIovrSampleRate, const UInt32 i, float* parameter1)
-	{
-		m_phase += twoPIovrSampleRate * parameter1[i];
-		if (m_phase >= 2 * M_PI)
-		{
-			m_phase -= 2 * M_PI;
-		}
-		if (m_phase < 0.0)
-		{
-			m_phase += 2 * M_PI;
-		}
-	}
-	double m_phase;
-	AudioBuffer m_result;
-};
 /*
 class SimpleSinAct :public MultiLinkedObject
 {
