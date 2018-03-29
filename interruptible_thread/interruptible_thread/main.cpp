@@ -90,6 +90,11 @@ public:
 		return m_data;
 	}
 
+	const WaveFormatHeader& getFormat()const
+	{
+		return m_bufferFormat;
+	}
+
 	bool mixData(AudioBuffer* otherBuffer)
 	{
 		//TODO: support conversion between different buffer formats
@@ -143,6 +148,17 @@ public:
 
 };*/
 
+class IAudioBlock
+{
+public:
+	virtual ~IAudioBlock() {}
+	virtual void stopLoop() = 0;
+	virtual void reset() = 0;
+	virtual bool isFinished() = 0;
+	virtual AudioBuffer* getResult() = 0;
+	virtual void update() = 0;
+};
+
 class IAudioSource
 {
 public:
@@ -159,10 +175,14 @@ public:
 	bool play()
 	{
 		if (m_isFinished)
+		{
 			return false;
+		}
 
 		if (m_isPlaying)
+		{
 			return false;
+		}
 
 		m_isPlaying = true;
 	}
@@ -186,12 +206,16 @@ public:
 	void update()
 	{
 		if (!m_isPlaying)
+		{
 			return;
-		
+		}
+
 		//m_block->update();
 		//m_isFinished = m_block->isFinished();
 		if (m_isFinished)
+		{
 			m_isPlaying = false;
+		}
 	}
 
 	bool isFinished()const
@@ -207,7 +231,7 @@ public:
 private:
 	bool m_isPlaying;
 	bool m_isFinished;
-	//std::shared_ptr<AudioBlock> m_block;
+	//std::shared_ptr<IAudioBlock> m_block;
 };
 
 class IAudioObject
@@ -346,6 +370,57 @@ void main()
 	printf("Program end!\n");
 }
 
+class SimpleSinBlockSettings
+{
+public:
+	double startPhase;
+	float defaultGain;
+	float defaultFreq;
+	float time;
+	UInt32 sampleRate;
+};
+
+#define _USE_MATH_DEFINES
+
+#include <math.h>
+class SimpleSinBlock: public IAudioBlock
+{
+public:
+	void update() override
+	{
+		AudioBuffer* parameter1;
+		AudioBuffer* parameter2;
+		auto parameter1data = parameter1->getData();
+		auto parameter2data = parameter2->getData();
+		/*if (resultBufferSize == 0 || inputs[1].getBuffer() == nullptr || inputs[2].getBuffer() == nullptr)
+		{
+			return;
+		}*/
+
+		const double twoPIovrSampleRate = 2 * M_PI / static_cast<double>(m_result.getFormat().samplesPerSec);
+		auto resultData = m_result.getData();
+		for (UInt32 i = 0; i < m_result.getMaxFrames(); ++i)// TODO: get from result buffer
+		{
+			resultData[i] = parameter2data[i] * static_cast<float>(sin(m_phase));
+			increasePhase(twoPIovrSampleRate, i, parameter2data);
+		}
+	}
+private:
+	void increasePhase(const double twoPIovrSampleRate, const UInt32 i, float* parameter1)
+	{
+		m_phase += twoPIovrSampleRate * parameter1[i];
+		if (m_phase >= 2 * M_PI)
+		{
+			m_phase -= 2 * M_PI;
+		}
+		if (m_phase < 0.0)
+		{
+			m_phase += 2 * M_PI;
+		}
+	}
+	double m_phase;
+	AudioBuffer m_result;
+};
 /*
 class SimpleSinAct :public MultiLinkedObject
 {
