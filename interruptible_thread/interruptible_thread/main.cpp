@@ -7,10 +7,12 @@
 
 #include <math.h>
 
-
+//http://www.cplusplus.com/forum/general/145283/
 typedef uint8_t UInt8;
 typedef uint16_t UInt16;
 typedef uint32_t UInt32;
+
+typedef UInt32 SourceID;
 
 typedef float Float32;
 
@@ -181,38 +183,50 @@ public:
 class SimpleSinBlock : public IAudioBlock
 {
 public:
-	bool initialize(const std::shared_ptr<AudioBlockSettings>& settings)
+	SimpleSinBlock():
+		m_elapsedTime(0),
+		m_phase(0),
+		m_gain(0),
+		m_freq(0),
+		m_settings(nullptr)
+	{
+	}
+
+	bool initialize(const std::shared_ptr<AudioBlockSettings>& settings)override
 	{
 		//TODO: checks here
 		m_settings = std::dynamic_pointer_cast<SimpleSinBlockSettings>(settings);
 		if (!m_settings)
+		{
 			return false;
-		
+		}
+
 		WaveFormatHeader format;
 		format.channels = 1;
 		format.samplesPerSec = m_settings->sampleRate;
 		format.bitsPerSample = 32;
 		format.audioTag = 3;
-		format.avgBytesPerSec = format.channels * format.samplesPerSec * (format.bitsPerSample/8);
+		format.avgBytesPerSec = format.channels * format.samplesPerSec * (format.bitsPerSample / 8);
+		//TODO: fill this
 		//format.blockAlign;
 		//format.format;
-		bool result = m_result.initialize(m_settings->bufferSize, format);
+		const bool result = m_result.initialize(m_settings->bufferSize, format);
 		reset();
 
 		return result;
 	}
-	
-	void finalize()
+
+	void finalize()override
 	{
 		m_result.clearData();
 	}
 
-	void stopLoop()
+	void stopLoop()override
 	{
 		//TODO: propagate to children
 	}
 
-	void reset()
+	void reset()override
 	{
 		m_phase = m_settings->startPhase;
 		m_elapsedTime = 0;
@@ -221,15 +235,17 @@ public:
 		//TODO: propagate to children
 	}
 
-	bool isFinished()
+	bool isFinished()override
 	{
 		if (m_settings->time < 0)
+		{
 			return false;
+		}
 
 		return m_settings->time <= m_elapsedTime;
 	}
 
-	AudioBuffer* getResult()
+	AudioBuffer* getResult()override
 	{
 		return &m_result;
 	}
@@ -273,15 +289,56 @@ class IAudioSource
 public:
 	virtual ~IAudioSource() {}
 
+	virtual bool initialize(const SourceID sourceId, const std::shared_ptr<AudioBlockSettings>& settings) = 0;
+	virtual void finalize() = 0;
+	virtual bool play() = 0;
+	virtual void pause() = 0;
+	virtual void stop() = 0;
+	virtual void stopLoop() = 0;
 	virtual void update() = 0;
 	virtual bool isFinished()const = 0;
+	virtual SourceID getSourceId()const = 0;
 	virtual AudioBuffer* getResult() = 0;
 };
 
 class SoundSource : public IAudioSource
 {
 public:
-	bool play()
+	SoundSource():
+		m_isPlaying(false),
+		m_isFinished(false),
+		m_sourceId(0),
+		m_block(nullptr)
+	{
+	}
+
+	SourceID getSourceId()const override
+	{
+		return m_sourceId;
+	}
+
+	bool initialize(const SourceID sourceId, const std::shared_ptr<AudioBlockSettings>& settings)override
+	{
+		if (m_block)
+		{
+			return false;
+		}
+
+		m_block = std::make_shared<SimpleSinBlock>();
+		if (!m_block)
+		{
+			return false;
+		}
+
+		return m_block->initialize(settings);
+	}
+
+	void finalize()override
+	{
+		m_block = nullptr;
+	}
+
+	bool play()override
 	{
 		if (m_isFinished)
 		{
@@ -294,25 +351,27 @@ public:
 		}
 
 		m_isPlaying = true;
+
+		return true;
 	}
 
-	void pause()
+	void pause()override
 	{
 		m_isPlaying = false;
 	}
 
-	void stop()
+	void stop()override
 	{
 		m_isPlaying = false;
 		m_block->reset();
 	}
 
-	void stopLoop()
+	void stopLoop()override
 	{
 		m_block->stopLoop();
 	}
 
-	void update()
+	void update()override
 	{
 		if (!m_isPlaying)
 		{
@@ -320,7 +379,7 @@ public:
 		}
 
 		m_block->update();
-		
+
 		m_isFinished = m_block->isFinished();
 		if (m_isFinished)
 		{
@@ -328,12 +387,12 @@ public:
 		}
 	}
 
-	bool isFinished()const
+	bool isFinished()const override
 	{
 		return m_isFinished;
 	}
 
-	AudioBuffer* getResult()
+	AudioBuffer* getResult()override
 	{
 		return m_block->getResult();
 	}
@@ -341,6 +400,7 @@ public:
 private:
 	bool m_isPlaying;
 	bool m_isFinished;
+	SourceID m_sourceId;
 	std::shared_ptr<IAudioBlock> m_block;
 };
 
@@ -348,6 +408,11 @@ class IAudioObject
 {
 public:
 	virtual ~IAudioObject() {}
+	//TODO: usefull setting is except
+	virtual bool playAll() = 0;
+	virtual void pauseAll() = 0;
+	virtual void stopAll() = 0;
+	virtual void stopLoopAll() = 0;
 	virtual void update() = 0;
 	// virtual AudioBuffer* getResult() = 0;
 };
@@ -373,41 +438,141 @@ class AudioOutput : public IAudioObject
 class AudioSourceTemplate : public IAudioObject
 {
 public:
-	bool setSettings();//settings for creation
+	AudioSourceTemplate():
+		m_settings(nullptr)
+	{
+	}
+
+	bool setSettings(const std::shared_ptr<AudioBlockSettings>& settings)
+	{
+		if (!settings)
+		{
+			return false;
+		}
+
+		m_settings = settings;
+
+		return true;
+	}
 
 	bool createSound()
 	{
-		//std::shared_ptr<IAudioSource> newSound = std::make_shared<IAudioSource>();
-		//creation code here
+		if (!m_settings)
+		{
+			return false;
+		}
+
+		std::shared_ptr<IAudioSource> newSound = std::make_shared<SoundSource>();
+		if (!newSound)
+		{
+			return false;
+		}
+
+		if (!newSound->initialize(m_nextSourceId, m_settings))
+		{
+			return false;
+		}
+
+		++m_nextSourceId;
+
 		//m_sources.pushFront(newSound);
 		return true;
 	}
 
 	void update()override
 	{
-		removeFinished();
+		m_sources.removeIf([](IAudioSource const & sound) {return sound.isFinished(); });
 
-		m_sources.forEach([](IAudioSource & sound) { sound.update(); });
+		//m_sources.forEach([](IAudioSource & sound) { sound.update(); });
 
 		//All buffers has equal sizes
 		m_sources.forEach([&](IAudioSource & sound)
 		{
 			sound.update();
-			m_result->mixData(sound.getResult());
+			m_result.mixData(sound.getResult());
 		});
 	}
 
-	void removeFinished()
+	bool play(SourceID id)
 	{
-		m_sources.removeIf([](IAudioSource const & sound) {return sound.isFinished(); });
+		bool result = true;
+		m_sources.forEach([&](IAudioSource & sound)
+		{
+			if(sound.getSourceId() == id)
+			{
+				if (!sound.play())
+				{
+					result = false;
+				}
+			}
+		});
+
+		return result;
+	}
+
+	void pause(SourceID id)
+	{
+		m_sources.forEach([&](IAudioSource & sound)
+		{
+			if (sound.getSourceId() == id)
+			{
+				sound.pause();
+			}
+		});
+	}
+
+	void stop(SourceID id)
+	{
+		m_sources.forEach([&](IAudioSource & sound)
+		{
+			if (sound.getSourceId() == id)
+			{
+				sound.stop();
+			}
+		});
+	}
+
+	void stopLoop(SourceID id)
+	{
+		m_sources.forEach([&](IAudioSource & sound)
+		{
+			if (sound.getSourceId() == id)
+			{
+				sound.stopLoop();
+			}
+		});
+	}
+
+	bool playAll()override
+	{
+		bool result = true;
+		m_sources.forEach([&](IAudioSource & sound) { if(!sound.play()) result = false; });
+
+		return result;
+	}
+
+	void pauseAll()override
+	{
+		m_sources.forEach([&](IAudioSource & sound) { sound.pause(); });
+	}
+
+	void stopAll()override
+	{
+		m_sources.forEach([&](IAudioSource & sound) { sound.stop(); });
+	}
+
+	void stopLoopAll()override
+	{
+		m_sources.forEach([&](IAudioSource & sound) { sound.stopLoop(); });
 	}
 private:
+	std::shared_ptr<AudioBlockSettings> m_settings;
 	ListThreadsafe<IAudioSource> m_sources;
-	//TODO: Why shared ptr?
-	std::shared_ptr<AudioBuffer> m_result;
+	AudioBuffer m_result;
+	static SourceID m_nextSourceId;
 };
 
-
+SourceID AudioSourceTemplate::m_nextSourceId = 0;
 //TODO: it should be singleton
 class AudioManager
 {
@@ -479,78 +644,3 @@ void main()
 	manager.finalize();
 	printf("Program end!\n");
 }
-
-
-/*
-class SimpleSinAct :public MultiLinkedObject
-{
-public:
-SimpleSinAct();
-
-~SimpleSinAct();
-
-bool setInput(unsigned int inputID, FloatParameter* val);
-
-void Process()override;
-
-protected:
-float* resultBuffer;
-double phase;
-float defaultGain;
-float defaultFreq;
-//Global for now
-unsigned long sampleRate;
-unsigned long resultBufferSize;
-
-void increasePhase(double twoPIovrSampleRate, ParameterBufferSize i);
-};
-
-SimpleSinAct::~SimpleSinAct()
-{
-}
-
-bool SimpleSinAct::setInput(unsigned int inputID, FloatParameter* val)
-{
-if (inputs.size() <= inputID || val == nullptr)
-return false;
-
-if (inputID == 0 && (val == nullptr || val->getBufferSize() != 1 || val->getValue(0) < 1))
-return false;
-
-bool result = inputs[inputID].setValue(val->getBuffer(), val->getBufferSize());
-if (inputID == 0 && result)
-{
-resultBufferSize = static_cast<unsigned long>(val->getValue(0));
-if (outputs[0].getBufferSize() != resultBufferSize)
-{
-if (resultBuffer)
-delete[] resultBuffer;
-
-resultBuffer = new float[resultBufferSize];
-outputs[0].setValue(resultBuffer, resultBufferSize);
-}
-}
-return result;
-}
-
-void SimpleSinAct::Process()
-{
-if (resultBufferSize == 0 || inputs[1].getBuffer() == nullptr || inputs[2].getBuffer() == nullptr)
-return;
-double twoPIovrSampleRate = TWO_PI / (double)sampleRate;
-for (ParameterBufferSize i = 0; i < resultBufferSize; ++i)
-{
-resultBuffer[i] = inputs[2].getValue(i) * static_cast<float>(sin(phase));
-increasePhase(twoPIovrSampleRate, i);
-}
-}
-
-void SimpleSinAct::increasePhase(double twoPIovrSampleRate, ParameterBufferSize i)
-{
-phase += twoPIovrSampleRate * inputs[1].getValue(i);
-if (phase >= TWO_PI)
-phase -= TWO_PI;
-if (phase < 0.0)
-phase += TWO_PI;
-}
-*/
